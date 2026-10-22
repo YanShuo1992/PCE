@@ -70,9 +70,6 @@ evaluation workers. Runs stay in the foreground, so start them in `tmux` or `scr
 after changing the code, and `--continue-from output_dgm/<run>` to resume a run. Results are written to
 `output_dgm/<run>/`.
 
-The solver is `deepseek-v4-flash`, which DeepSeek has since retired; the name is still accepted and is
-served by DeepSeek-V4.1-Flash.
-
 ## Acknowledgement
 
 This codebase is built upon [GEA](https://github.com/UCSB-AI/GEA), which is built upon the
