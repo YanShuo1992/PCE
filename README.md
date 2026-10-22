@@ -1,45 +1,41 @@
-# The View from Nowhere: Population-Centered Agent Evolution
+<h1 align="center">
+    The View from Nowhere:<br/>Population-Centered Agent Evolution
+</h1>
 
-This repository contains the code for Population-Centered Evolution (PCE).
+Repository for **Population-Centered Evolution (PCE)**, which distils population-wide experience into a
+population block that guides improvements to a selected parent's harness.
 
-## Requirements
-
-- Linux (x86_64) with Docker
-- Conda or Miniforge
-- At least 500 GB of free disk for the benchmark images; 1 TB is recommended
-- A DeepSeek API key
-- Network access to PyPI, Hugging Face and GitHub during setup
+<p align="center">
+  <img src="./misc/overview.png" width="100%" height="auto" />
+</p>
 
 ## Setup
 
-### 1. Host environment
+Requires Linux with Docker, Conda or Miniforge, a DeepSeek API key, and at least 500 GB of free disk
+(1 TB recommended).
 
 ```bash
-conda env create -f environment.yml
-conda activate mini_oracle
+# API key: create secrets.env in the repository root with
+# DEEPSEEK_API_KEY=...
 ```
 
-This installs Python 3.11. `requirements.txt` is installed inside the containers, not on the host.
-
-### 2. Docker
-
 ```bash
+# Verify that Docker is properly configured in your environment.
 docker run hello-world
-```
 
-On a permission error:
-
-```bash
+# If a permission error occurs, add the user to the Docker group
 sudo usermod -aG docker $USER
 newgrp docker
 ```
 
-### 3. SWE-bench
-
-Clone the evaluation harness into `swe_bench/SWE-bench`, apply the three patches, and install it
-from that tree, not from PyPI:
+```bash
+# Install dependencies (Python 3.11)
+conda env create -f environment.yml
+conda activate mini_oracle
+```
 
 ```bash
+# Clone SWE-bench, apply the patches, and install it from this tree (not from PyPI)
 cd swe_bench
 git clone https://github.com/princeton-nlp/SWE-bench.git
 cd SWE-bench
@@ -49,65 +45,33 @@ git apply ../../patches/0003-swebench-docutils-sphinx30.patch
 git apply ../../patches/0004-swebench-list-images.patch
 pip install -e .
 cd ../../
-```
 
-### 4. Polyglot
-
-`git` needs a `user.name` and a `user.email`, because the preparation step commits in each exercise
-repository:
-
-```bash
-git config --global user.name "..."
-git config --global user.email "..."
-```
-
-From the repository root, prepare the 225 exercises and build their images:
-
-```bash
+# Prepare Polyglot and build its images
+# Make sure git is configured with a user.name and a user.email
+# Re-run rebuild_images.sh whenever prepare_polyglot_dataset is re-run
 python -m polyglot.prepare_polyglot_dataset
 bash polyglot/rebuild_images.sh
 ```
 
-Re-running the first command changes every commit hash, so the second has to be re-run after it.
-
-### 5. API key
-
-Create `secrets.env` at the repository root:
-
-```
-DEEPSEEK_API_KEY=...
-```
-
-The solver is `deepseek-v4-flash`, and diagnosis and distillation use `deepseek-v4-pro`. DeepSeek has
-since retired `deepseek-v4-flash`; the name is still accepted and is served by DeepSeek-V4.1-Flash.
-
-## Running experiments
-
-`exp/` holds the four experiments:
-
-| Experiment | Benchmark | Method |
-| --- | --- | --- |
-| `gea` | SWE-bench | GEA (baseline) |
-| `distill` | SWE-bench | PCE |
-| `polyglot_gea` | Polyglot | GEA (baseline) |
-| `polyglot_distill` | Polyglot | PCE |
-
-Start one with:
+## Running the experiments
 
 ```bash
+# SWE-bench: GEA baseline and PCE
 ./run_swe.sh gea
 ./run_swe.sh distill
+
+# Polyglot: GEA baseline and PCE
 ./run_polyglot.sh polyglot_gea
 ./run_polyglot.sh polyglot_distill
 ```
 
-To check an experiment without starting it, add `show`, for example `./run_swe.sh show distill`.
+A SWE-bench run takes about four days and a Polyglot run about one day, depending on the number of
+evaluation workers. Runs stay in the foreground, so start them in `tmux` or `screen`. Add `--rebuild`
+after changing the code, and `--continue-from output_dgm/<run>` to resume a run. Results are written to
+`output_dgm/<run>/`.
 
-A SWE-bench experiment takes about four days and a Polyglot experiment about one day, depending on
-the number of evaluation workers. Runs stay in the foreground, so start them in `tmux` or `screen`.
-The first run builds the `dgm` image; add `--rebuild` after changing the code. The image name is
-fixed, so only one checkout per machine can run at a time. To resume an interrupted run, add
-`--continue-from output_dgm/<run>`. Results are written to `output_dgm/<run>/`.
+The solver is `deepseek-v4-flash`, which DeepSeek has since retired; the name is still accepted and is
+served by DeepSeek-V4.1-Flash.
 
 ## Acknowledgement
 
