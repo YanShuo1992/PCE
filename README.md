@@ -1,6 +1,7 @@
-# Group distillation: evolution code
+# The View from Nowhere: Population-Centered Agent Evolution
 
-Supplementary material
+Code for Population-Centered Evolution (PCE) and for GEA, the baseline it is compared against. The
+code is built on [GEA](https://github.com/UCSB-AI/GEA).
 
 ## Requirements
 
@@ -103,17 +104,22 @@ The arms run `dsclaude/deepseek-v4-flash` as the solver, against
 distillation, against `https://api.deepseek.com`. For a different solver endpoint set
 `DEEPSEEK_ANTHROPIC_BASE_URL` and give `DEEPSEEK_API_KEY` that host's key.
 
+DeepSeek has since retired `deepseek-v4-flash`; the name is still accepted and is served by
+DeepSeek-V4.1-Flash.
+
 ## 7. Arms
 
 Each arm is one file under `exp/`. `run.py` resolves it to an environment and a `GEA_outer.py`
 command line, and writes `exp/<ID>.<stamp>.launch.txt` recording what the run received.
 
+`gea` and `polyglot_gea` run GEA; `distill` and `polyglot_distill` run PCE.
+
 | Arm | Benchmark | Relative to the baseline |
 | --- | --- | --- |
 | `gea` | SWE-bench | baseline |
-| `distill` | SWE-bench | `DISTILL=1`, `EMPTY_ENTRIES=1` |
+| `distill` | SWE-bench | `DISTILL=1`, `DISTILL_STEPS=250`, `EMPTY_ENTRIES=1` |
 | `polyglot_gea` | Polyglot | baseline |
-| `polyglot_distill` | Polyglot | `DISTILL=1`, `POLYGLOT_ENTRY_POOL=unsolved` |
+| `polyglot_distill` | Polyglot | `DISTILL=1`, `DISTILL_STEPS=250`, `EVAL_MAX_WORKERS=4` (12 in the baseline) |
 
 ## 8. Launch
 
@@ -143,3 +149,16 @@ the `dgm` image was built, and `--continue-from output_dgm/<stamp>` to resume a 
 source frozen at the start of the run. Each child directory holds `metadata.json` with that
 child's score, `model_patch.diff`, `self_evo.md`, and `predictions/`. Distillations are written to
 `_distill/<tag>/verdict_<tag>.json`.
+
+## Acknowledgement
+
+This codebase is built upon [GEA](https://github.com/UCSB-AI/GEA), which is built upon the
+[Darwin Gödel Machine (DGM)](https://github.com/jennyzzt/dgm). We sincerely thank the authors for
+their inspiring and impactful work.
+
+The evaluation is based on the [SWE-bench](https://github.com/princeton-nlp/SWE-bench) and
+[polyglot-benchmark](https://github.com/Aider-AI/polyglot-benchmark) repositories.
+
+## License
+
+Apache License 2.0. See [`LICENSE`](LICENSE).
