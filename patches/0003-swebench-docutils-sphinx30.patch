@@ -1,0 +1,34 @@
+diff --git aa/swebench/harness/constants.py bb/swebench/harness/constants.py
+index 69dda3d..d1501fd 100644
+--- aa/swebench/harness/constants.py
++++ bb/swebench/harness/constants.py
+@@ -547,6 +547,29 @@ SPECS_SPHINX["7.2"]["pre_install"] += [
+     "apt-get update && apt-get install -y graphviz"
+ ]
+ 
++# sphinx 3.0's setup.py:26 declares `docutils>=0.12` with no upper bound, so a locally-built
++# image resolves it to docutils 0.23 -- a version released five years later. Under 0.23 the
++# PASS_TO_PASS test tests/test_domain_py.py::test_pyfunction_signature_full_py38 fails on the
++# base commit, with the gold patch, and with any patch, so sphinx-doc__sphinx-7454 could not be
++# resolved by anything and our 60-instance ceiling was 59 rather than 60.
++#
++# The mechanism, in one line: sphinx 3.0 renders a parameter default with
++# `nodes.inline('', param.default)` (sphinx/domains/python.py:160), and for `hello(*, a)` the
++# default it passes is Python's None, because its own unparse() returns None for the absent
++# kw_default. Old docutils' Text subclassed str, so Text(None) became the literal text "None" --
++# which is exactly what that test asserts. docutils >=0.21 no longer builds a Text child from a
++# non-string, so the inline node comes out empty and the assertion "has 0 child nodes, not one"
++# fires. The test encodes a docutils accident of its own era, so the era is what has to be
++# restored. Upstream sphinx reached the same conclusion from the other side and pinned
++# `docutils>=0.12,<0.17` in the 3.x series.
++#
++# Scoped to "3.0" alone, not to SPECS_SPHINX as a whole: 3.0 is one instance of our 25 sphinx
++# tasks, every other sphinx version's gold patch already passes, and the later ones genuinely
++# need a newer docutils. Appended after `-e .[test]` so the editable install cannot pull it back
++# up. Like P1, the install command is re-run at eval time (make_eval_script_list), so this takes
++# effect WITHOUT rebuilding any image.
++SPECS_SPHINX["3.0"]["install"] += " && python -m pip install 'docutils==0.16'"
++
+ SPECS_ASTROPY = {
+     k: {
+         "python": "3.9",

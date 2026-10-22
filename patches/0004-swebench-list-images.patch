@@ -1,0 +1,55 @@
+diff --git a/swebench/harness/docker_utils.py b/swebench/harness/docker_utils.py
+index 2a1dddf..0b0c560 100644
+--- a/swebench/harness/docker_utils.py
++++ b/swebench/harness/docker_utils.py
+@@ -262,7 +262,30 @@ def list_images(client: docker.DockerClient):
+     List all images from the Docker client.
+     """
+     # don't use this in multi-threaded context
+-    return {tag for i in client.images.list(all=True) for tag in i.tags}
++    # ★ client.api.images, NOT client.images.list. docker-py implements the model-level call as
++    #   `[self.get(r["Id"]) for r in resp]` (models/images.py) -- one inspect ROUND-TRIP PER IMAGE.
++    #   Measured on this machine 2026-09-19: 2668 images (`docker images -a`), 0.27s per inspect,
++    #   one call still unfinished after 600s. run_evaluation makes three of them (main,
++    #   clean_images, make_run_report), and the first is before its first print, so a grading run
++    #   sits silent for twenty minutes looking hung. The low-level call returns the same RepoTags
++    #   in a single request. The `<none>:<none>` filter is what Image.tags does, kept so the
++    #   returned set is identical.
++    # ★ all=False, not all=True. `all=True` also returns the intermediate build layers -- 2668
++    #   entries here against 808 tagged ones -- and they carry no RepoTags, so they cannot change
++    #   the set this returns (verified: both forms give the same 808 tags, symmetric difference 0).
++    #   They only make the response big enough to blow docker-py's 60s default read timeout when
++    #   the daemon is also serving an evaluation's containers, which is how this first failed.
++    api = client.api
++    prev = getattr(api, "timeout", None)
++    try:
++        if prev is not None:
++            api.timeout = max(prev, 600)
++        raw = api.images(all=False)
++    finally:
++        if prev is not None:
++            api.timeout = prev
++    return {tag for i in raw
++            for tag in (i.get("RepoTags") or []) if tag != "<none>:<none>"}
+ 
+ 
+ def clean_images(
+diff --git a/swebench/harness/run_evaluation.py b/swebench/harness/run_evaluation.py
+index 0546371..f643f17 100644
+--- a/swebench/harness/run_evaluation.py
++++ b/swebench/harness/run_evaluation.py
+@@ -246,10 +246,10 @@ def run_instances(
+ 
+     # print number of existing instance images
+     instance_image_ids = {x.instance_image_key for x in test_specs}
+-    existing_images = {
+-        tag for i in client.images.list(all=True)
+-        for tag in i.tags if tag in instance_image_ids
+-    }
++    # ★ Through list_images rather than client.images.list: the model-level call costs one
++    #   inspect round-trip per image and there are thousands here. Same set either way -- this is
++    #   the tags of every image, intersected with the ones wanted.
++    existing_images = {tag for tag in list_images(client) if tag in instance_image_ids}
+     if not force_rebuild and len(existing_images):
+         print(f"Found {len(existing_images)} existing instance images. Will reuse them.")
+ 

@@ -1,0 +1,8 @@
+{
+    "instance_id": "python__beer-song",
+    "model_name_or_path": "initial",
+    "model_patch": "diff --git a/beer_song.py b/beer_song.py\nindex 9a5e67f..5f751e4 100644\n--- a/beer_song.py\n+++ b/beer_song.py\n@@ -1,2 +1,35 @@\n def recite(start, take=1):\n-    pass\n+    \"\"\"Recite the beer song.\"\"\"\n+    verses = []\n+    for num in range(start, start - take, -1):\n+        verses.extend(_get_verse(num))\n+    return verses\n+\n+\n+def _get_verse(number):\n+    \"\"\"Get a single verse of the song.\"\"\"\n+    current = _get_bottle_text(number)\n+    next_number = number - 1\n+    next_bottles = _get_bottle_text(next_number)\n+\n+    verse = [\n+        f\"{current.capitalize()} of beer on the wall, {current} of beer.\",\n+    ]\n+\n+    if number == 0:\n+        verse.append(\"Go to the store and buy some more, 99 bottles of beer on the wall.\")\n+    else:\n+        action = \"Take it\" if number == 1 else \"Take one\"\n+        verse.append(f\"{action} down and pass it around, {next_bottles} of beer on the wall.\")\n+\n+    verse.append(\"\")\n+    return verse\n+\n+\n+def _get_bottle_text(number):\n+    \"\"\"Get the appropriate bottle text based on the number.\"\"\"\n+    if number == 0:\n+        return \"no more bottles\"\n+    if number == 1:\n+        return \"1 bottle\"\n+    return f\"{number} bottles\"\n\\ No newline at end of file\n",
+    "proposed_model_patches": [],
+    "eval_result": "unresolved",
+    "success": true
+}

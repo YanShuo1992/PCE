@@ -1,0 +1,378 @@
+import json
+import os
+import re
+
+import anthropic
+import backoff
+import openai
+
+MAX_OUTPUT_TOKENS = 8192
+AVAILABLE_LLMS = [
+    "claude-3-5-haiku-20241022",
+    "gpt-4o-mini-2024-07-18",
+    "gpt-4o-2024-05-13",
+    "gpt-4o-2024-08-06",
+    "o1-preview-2024-09-12",
+    "o1-mini-2024-09-12",
+    "o1-2024-12-17",
+    "o3-mini-2025-01-31",
+    "llama3.1-405b",
+    "glm-4.6",
+    "glm-4.5-air",
+    "claude-3-sonnet-20240229",
+    "claude-3-5-haiku-20241022",
+    "claude-3-haiku-20240307",
+    "claude-3-opus-20240229",
+    "bedrock/anthropic.claude-3-sonnet-20240229-v1:0",
+    "bedrock/anthropic.claude-3-5-sonnet-20240620-v1:0",
+    "bedrock/anthropic.claude-3-5-sonnet-20241022-v2:0",
+    "bedrock/anthropic.claude-3-haiku-20240307-v1:0",
+    "bedrock/anthropic.claude-3-opus-20240229-v1:0",
+    "bedrock/us.anthropic.claude-3-5-sonnet-20241022-v2:0",
+    "bedrock/global.anthropic.claude-haiku-4-5-20251001-v1:0",
+    "bedrock/global.anthropic.claude-opus-4-5-20251101-v1:0",
+    "bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+    "vertex_ai/claude-3-opus@20240229",
+    "vertex_ai/claude-3-5-sonnet@20240620",
+    "vertex_ai/claude-3-5-sonnet-v2@20241022",
+    "vertex_ai/claude-3-sonnet@20240229",
+    "vertex_ai/claude-3-haiku@20240307",
+    "deepseek-chat",
+    "deepseek-coder",
+    "deepseek-reasoner",
+]
+
+def create_client(model: str):
+    if model.startswith("bedrock") and "claude" in model:
+        client_model = model.split("/")[-1]
+        print(f"Using Amazon Bedrock with model {client_model}.")
+        client = anthropic.AnthropicBedrock(
+            aws_access_key=os.getenv("AWS_ACCESS_KEY_ID"),
+            aws_secret_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
+            aws_region=os.getenv("AWS_REGION_NAME"),
+        )
+        return client, client_model
+    elif model.startswith("dsclaude/"):
+        print(f"Using DeepSeek (Anthropic format) with model {model}.")
+        client = anthropic.Anthropic(
+            api_key=os.environ["DEEPSEEK_API_KEY"],
+            base_url=os.getenv("DEEPSEEK_ANTHROPIC_BASE_URL", "https://api.deepseek.com/anthropic"),
+        )
+        return client, model
+    elif model.startswith("claude-"):
+        print(f"Using Anthropic API with model {model}.")
+        return anthropic.Anthropic(), model
+    elif model.startswith("vertex_ai") and "claude" in model:
+        client_model = model.split("/")[-1]
+        print(f"Using Vertex AI with model {client_model}.")
+        return anthropic.AnthropicVertex(), client_model
+    elif 'gpt' in model or model.startswith("o1-") or model.startswith("o3-"):
+        print(f"Using OpenAI API with model {model}.")
+        return openai.OpenAI(), model
+    elif model.startswith("deepseek-"):
+        print(f"Using OpenAI API with {model}.")
+        client = openai.OpenAI(
+            api_key=os.environ["DEEPSEEK_API_KEY"],
+            base_url="https://api.deepseek.com"
+        )
+        return client, model
+    elif model.startswith("glm-"):
+        print(f"Using Z.AI API with model {model}.")
+        client = openai.OpenAI(
+            api_key=os.environ["ZAI_API_KEY"],
+            base_url="https://api.z.ai/api/paas/v4"
+        )
+        return client, model
+    elif model == "llama3.1-405b":
+        print(f"Using OpenAI API with {model}.")
+        client = openai.OpenAI(
+            api_key=os.environ["OPENROUTER_API_KEY"],
+            base_url="https://openrouter.ai/api/v1"
+        ), model
+    else:
+        raise ValueError(f"Model {model} not supported.")
+
+@backoff.on_exception(backoff.expo, (openai.RateLimitError, openai.APITimeoutError))
+def get_batch_responses_from_llm(
+        msg,
+        client,
+        model,
+        system_message,
+        print_debug=False,
+        msg_history=None,
+        temperature=0.75,
+        n_responses=1,
+):
+    if msg_history is None:
+        msg_history = []
+
+    if model in [
+        "gpt-4o-2024-05-13",
+        "gpt-4o-mini-2024-07-18",
+        "gpt-4o-2024-08-06",
+        "glm-4.6",
+        "glm-4.5-air",
+    ]:
+        new_msg_history = msg_history + [{"role": "user", "content": msg}]
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_message},
+                *new_msg_history,
+            ],
+            temperature=temperature,
+            max_tokens=MAX_OUTPUT_TOKENS,
+            n=n_responses,
+            stop=None,
+            seed=0,
+        )
+        content = [r.message.content for r in response.choices]
+        new_msg_history = [
+            new_msg_history + [{"role": "assistant", "content": c}] for c in content
+        ]
+    elif model == "llama-3-1-405b-instruct":
+        new_msg_history = msg_history + [{"role": "user", "content": msg}]
+        response = client.chat.completions.create(
+            model="meta-llama/llama-3.1-405b-instruct",
+            messages=[
+                {"role": "system", "content": system_message},
+                *new_msg_history,
+            ],
+            temperature=temperature,
+            max_tokens=MAX_OUTPUT_TOKENS,
+            n=n_responses,
+            stop=None,
+        )
+        content = [r.message.content for r in response.choices]
+        new_msg_history = [
+            new_msg_history + [{"role": "assistant", "content": c}] for c in content
+        ]
+    else:
+        content, new_msg_history = [], []
+        for _ in range(n_responses):
+            c, hist = get_response_from_llm(
+                msg,
+                client,
+                model,
+                system_message,
+                print_debug=False,
+                msg_history=None,
+                temperature=temperature,
+            )
+            content.append(c)
+            new_msg_history.append(hist)
+
+    if print_debug:
+        print()
+        print("*" * 20 + " LLM START " + "*" * 20)
+        for j, msg in enumerate(new_msg_history[0]):
+            print(f'{j}, {msg["role"]}: {msg["content"]}')
+        print(content)
+        print("*" * 21 + " LLM END " + "*" * 21)
+        print()
+
+    return content, new_msg_history
+
+@backoff.on_exception(
+    backoff.expo,
+    (openai.RateLimitError, openai.APITimeoutError, anthropic.RateLimitError, anthropic.APIStatusError),
+    max_time=120,
+)
+def get_response_from_llm(
+        msg,
+        client,
+        model,
+        system_message,
+        print_debug=False,
+        msg_history=None,
+        temperature=0.7,
+):
+    if msg_history is None:
+        msg_history = []
+
+    if "claude" in model:
+        new_msg_history = msg_history + [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": msg,
+                    }
+                ],
+            }
+        ]
+        response = client.messages.create(
+            model=model,
+            max_tokens=MAX_OUTPUT_TOKENS,
+            temperature=temperature,
+            system=system_message,
+            messages=new_msg_history,
+        )
+        content = response.content[0].text
+        new_msg_history = new_msg_history + [
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": content,
+                    }
+                ],
+            }
+        ]
+    elif model.startswith("gpt-4o-") or model.startswith("gpt-5") or model.startswith("glm-"):
+        new_msg_history = msg_history + [{"role": "user", "content": msg}]
+
+        if model.startswith("gpt-5"):
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_message},
+                    *new_msg_history,
+                ],
+                temperature=temperature,
+                max_completion_tokens=MAX_OUTPUT_TOKENS,
+                n=1,
+                stop=None,
+                seed=0,
+            )
+        else:
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_message},
+                    *new_msg_history,
+                ],
+                temperature=temperature,
+                max_tokens=MAX_OUTPUT_TOKENS,
+                n=1,
+                stop=None,
+                seed=0,
+            )
+        content = response.choices[0].message.content
+        if model.startswith("glm-"):
+            print("")
+        new_msg_history = new_msg_history + [{"role": "assistant", "content": content}]
+    elif model.startswith("o1-") or model.startswith("o3-"):
+        new_msg_history = msg_history + [{"role": "user", "content": system_message + msg}]
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                *new_msg_history,
+            ],
+            temperature=1,
+            n=1,
+            seed=0,
+        )
+        content = response.choices[0].message.content
+        new_msg_history = new_msg_history + [{"role": "assistant", "content": content}]
+    elif model in ["deepseek-chat", "deepseek-coder"]:
+        new_msg_history = msg_history + [{"role": "user", "content": msg}]
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_message},
+                *new_msg_history,
+            ],
+            temperature=temperature,
+            max_tokens=MAX_OUTPUT_TOKENS,
+            n=1,
+            stop=None,
+        )
+        content = response.choices[0].message.content
+        new_msg_history = new_msg_history + [{"role": "assistant", "content": content}]
+    elif model in ["deepseek-reasoner"] or model.startswith("deepseek-v4"):
+        new_msg_history = msg_history + [{"role": "user", "content": msg}]
+        _eff = os.getenv('DIAGNOSE_REASONING_EFFORT')
+        _rc_kwargs = {'reasoning_effort': _eff, 'extra_body': {"thinking": {"type": "enabled"}}} if _eff else {}
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_message},
+                *new_msg_history,
+            ],
+            n=1,
+            stop=None,
+            **_rc_kwargs,
+        )
+        content = response.choices[0].message.content
+        new_msg_history = new_msg_history + [{"role": "assistant", "content": content}]
+        reasoning_content = getattr(response.choices[0].message, 'reasoning_content', None)
+        if not reasoning_content:
+            print(f"[NO_REASONING] diagnose model={model} effort={_eff or 'default'} reasoning_content is empty!", flush=True)
+        else:
+            print(f"[REASONING_OK] diagnose model={model} effort={_eff or 'default'} reasoning={len(reasoning_content)} chars", flush=True)
+    elif model.startswith("llama3.1-"):
+        llama_size = model.split("-")[-1]
+        client_model = f"meta-llama/llama-3.1-{llama_size}-instruct"
+        new_msg_history = msg_history + [{"role": "user", "content": msg}]
+        response = client.chat.completions.create(
+            model=client_model,
+            messages=[
+                {"role": "system", "content": system_message},
+                *new_msg_history,
+            ],
+            temperature=temperature,
+            max_tokens=MAX_OUTPUT_TOKENS,
+            n=1,
+            stop=None,
+        )
+        content = response.choices[0].message.content
+        new_msg_history = new_msg_history + [{"role": "assistant", "content": content}]
+        resoning_content = response.choices[0].message.reasoning_content
+    else:
+        raise ValueError(f"Model {model} not supported.")
+    if print_debug:
+        print()
+        print("*" * 20 + " LLM START " + "*" * 20)
+        print(f'User: {new_msg_history[-2]["content"]}')
+        print(f'Assistant: {new_msg_history[-1]["content"]}')
+        print("*" * 21 + " LLM END " + "*" * 21)
+        print()
+    return content, new_msg_history
+
+def extract_json_between_markers(llm_output):
+    inside_json_block = False
+    json_lines = []
+
+    for line in llm_output.split('\n'):
+        striped_line = line.strip()
+
+        if striped_line.startswith("```json"):
+            inside_json_block = True
+            continue
+
+        if inside_json_block and striped_line.startswith("```"):
+            inside_json_block = False
+            break
+
+        if inside_json_block:
+            json_lines.append(line)
+
+    if not json_lines:
+        fallback_pattern = r"\{.*?\}"
+        matches = re.findall(fallback_pattern, llm_output, re.DOTALL)
+        for candidate in matches:
+            candidate = candidate.strip()
+            if candidate:
+                try:
+                    return json.loads(candidate)
+                except json.JSONDecodeError:
+                    candidate_clean = re.sub(r"[\x00-\x1F\x7F]", "", candidate)
+                    try:
+                        return json.loads(candidate_clean)
+                    except json.JSONDecodeError:
+                        continue
+        return None
+
+    json_string = "\n".join(json_lines).strip()
+
+    try:
+        return json.loads(json_string)
+    except json.JSONDecodeError:
+        json_string_clean = re.sub(r"[\x00-\x1F\x7F]", "", json_string)
+        try:
+            return json.loads(json_string_clean)
+        except json.JSONDecodeError:
+            return None

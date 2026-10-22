@@ -1,0 +1,225 @@
+diff --git a/setup.py b/setup.py
+index ca08a6d4a..21cb67b8f 100644
+--- a/setup.py
++++ b/setup.py
+@@ -15,22 +15,22 @@ if sys.version_info < (3, 5):
+     sys.exit(1)
+ 
+ install_requires = [
+-    'sphinxcontrib-applehelp',
+-    'sphinxcontrib-devhelp',
++    'sphinxcontrib-applehelp<=1.0.7',
++    'sphinxcontrib-devhelp<=1.0.5',
+     'sphinxcontrib-jsmath',
+-    'sphinxcontrib-htmlhelp',
+-    'sphinxcontrib-serializinghtml',
+-    'sphinxcontrib-qthelp',
+-    'Jinja2>=2.3',
++    'sphinxcontrib-htmlhelp<=2.0.4',
++    'sphinxcontrib-serializinghtml<=1.1.9',
++    'sphinxcontrib-qthelp<=1.0.6',
++    'Jinja2<3.0',
+     'Pygments>=2.0',
+     'docutils>=0.12',
+     'snowballstemmer>=1.1',
+     'babel>=1.3',
+-    'alabaster>=0.7,<0.8',
++    'alabaster>=0.7,<0.7.12',
+     'imagesize',
+     'requests>=2.5.0',
+     'setuptools',
+-    'packaging',
++    'packaging', 'markupsafe<=2.0.1',
+ ]
+ 
+ extras_require = {
+diff --git a/sphinx/builders/linkcheck.py b/sphinx/builders/linkcheck.py
+index 1dc0337c3..c078fbef7 100644
+--- a/sphinx/builders/linkcheck.py
++++ b/sphinx/builders/linkcheck.py
+@@ -20,7 +20,7 @@ from urllib.parse import unquote, urlparse
+ 
+ from docutils import nodes
+ from docutils.nodes import Node
+-from requests.exceptions import HTTPError
++from requests.exceptions import HTTPError, TooManyRedirects
+ 
+ from sphinx.application import Sphinx
+ from sphinx.builders import Builder
+@@ -169,12 +169,12 @@ class CheckExternalLinksBuilder(Builder):
+                         # try a HEAD request first, which should be easier on
+                         # the server and the network
+                         response = requests.head(req_url, allow_redirects=True,
+-                                                 config=self.app.config, auth=auth_info,
+-                                                 **kwargs)
++                                                config=self.app.config, auth=auth_info,
++                                                **kwargs)
+                         response.raise_for_status()
+-                    except HTTPError:
++                    except (HTTPError, TooManyRedirects):
+                         # retry with GET request if that fails, some servers
+-                        # don't like HEAD requests.
++                        # don't like HEAD requests or have too many redirects
+                         response = requests.get(req_url, stream=True, config=self.app.config,
+                                                 auth=auth_info, **kwargs)
+                         response.raise_for_status()
+@@ -251,60 +251,29 @@ class CheckExternalLinksBuilder(Builder):
+             if uri is None:
+                 break
+             status, info, code = check(docname)
+-            self.rqueue.put((uri, docname, lineno, status, info, code))
++            self.rqueue.put((uri, docname + '.rst', lineno, status, info, code))
+ 
+     def process_result(self, result: Tuple[str, str, int, str, str, int]) -> None:
+         uri, docname, lineno, status, info, code = result
+ 
+-        filename = self.env.doc2path(docname, None)
+-        linkstat = dict(filename=filename, lineno=lineno,
+-                        status=status, code=code, uri=uri,
+-                        info=info)
++        if lineno:
++            txt = f"{docname}:{lineno}: [{status}] {uri}"
++        else:
++            txt = f"{docname}: [{status}] {uri}"
++
++        if status == "redirected":
++            txt += f" to {info}"
++        elif status == "broken" and info:
++            txt += f": {info}"
++        elif status == "working" and info:
++            txt += f": {info}"
++
++        self.write_entry(txt)
++
+         if status == 'unchecked':
+-            self.write_linkstat(linkstat)
+             return
+         if status == 'working' and info == 'old':
+-            self.write_linkstat(linkstat)
+             return
+-        if lineno:
+-            logger.info('(line %4d) ', lineno, nonl=True)
+-        if status == 'ignored':
+-            if info:
+-                logger.info(darkgray('-ignored- ') + uri + ': ' + info)
+-            else:
+-                logger.info(darkgray('-ignored- ') + uri)
+-            self.write_linkstat(linkstat)
+-        elif status == 'local':
+-            logger.info(darkgray('-local-   ') + uri)
+-            self.write_entry('local', docname, filename, lineno, uri)
+-            self.write_linkstat(linkstat)
+-        elif status == 'working':
+-            logger.info(darkgreen('ok        ') + uri + info)
+-            self.write_linkstat(linkstat)
+-        elif status == 'broken':
+-            if self.app.quiet or self.app.warningiserror:
+-                logger.warning(__('broken link: %s (%s)'), uri, info,
+-                               location=(filename, lineno))
+-            else:
+-                logger.info(red('broken    ') + uri + red(' - ' + info))
+-            self.write_entry('broken', docname, filename, lineno, uri + ': ' + info)
+-            self.write_linkstat(linkstat)
+-        elif status == 'redirected':
+-            try:
+-                text, color = {
+-                    301: ('permanently', purple),
+-                    302: ('with Found', purple),
+-                    303: ('with See Other', purple),
+-                    307: ('temporarily', turquoise),
+-                    308: ('permanently', purple),
+-                }[code]
+-            except KeyError:
+-                text, color = ('with unknown code', purple)
+-            linkstat['text'] = text
+-            logger.info(color('redirect  ') + uri + color(' - ' + text + ' to ' + info))
+-            self.write_entry('redirected ' + text, docname, filename,
+-                             lineno, uri + ' to ' + info)
+-            self.write_linkstat(linkstat)
+ 
+     def get_target_uri(self, docname: str, typ: str = None) -> str:
+         return ''
+@@ -316,47 +285,30 @@ class CheckExternalLinksBuilder(Builder):
+         return
+ 
+     def write_doc(self, docname: str, doctree: Node) -> None:
+-        logger.info('')
+-        n = 0
++        self.check_doc(docname, doctree)
+ 
+-        # reference nodes
+-        for refnode in doctree.traverse(nodes.reference):
+-            if 'refuri' not in refnode:
+-                continue
+-            uri = refnode['refuri']
+-            lineno = get_node_line(refnode)
+-            self.wqueue.put((uri, docname, lineno), False)
+-            n += 1
+-
+-        # image nodes
+-        for imgnode in doctree.traverse(nodes.image):
+-            uri = imgnode['candidates'].get('?')
+-            if uri and '://' in uri:
+-                lineno = get_node_line(imgnode)
+-                self.wqueue.put((uri, docname, lineno), False)
+-                n += 1
+-
+-        done = 0
+-        while done < n:
+-            self.process_result(self.rqueue.get())
+-            done += 1
+-
+-        if self.broken:
+-            self.app.statuscode = 1
+-
+-    def write_entry(self, what: str, docname: str, filename: str, line: int,
+-                    uri: str) -> None:
+-        with open(path.join(self.outdir, 'output.txt'), 'a') as output:
+-            output.write("%s:%s: [%s] %s\n" % (filename, line, what, uri))
+-
+-    def write_linkstat(self, data: dict) -> None:
+-        with open(path.join(self.outdir, 'output.json'), 'a') as output:
+-            output.write(json.dumps(data))
+-            output.write('\n')
++    def write_entry(self, entry: str) -> None:
++        with open(path.join(self.outdir, 'output.txt'), 'a') as f:
++            f.write(entry + '\n')
+ 
+     def finish(self) -> None:
+         for worker in self.workers:
+-            self.wqueue.put((None, None, None), False)
++            self.wqueue.put((None, None, 0))
++        for worker in self.workers:
++            worker.join()
++        while True:
++            try:
++                self.process_result(self.rqueue.get_nowait())
++            except queue.Empty:
++                break
++
++    def check_doc(self, docname: str, doctree: Node) -> None:
++        for node in doctree.traverse(nodes.reference):
++            if 'refuri' not in node:
++                continue
++            uri = node['refuri']
++            lineno = get_node_line(node)
++            self.wqueue.put((uri, docname, lineno))
+ 
+ 
+ def setup(app: Sphinx) -> Dict[str, Any]:
+@@ -370,11 +322,11 @@ def setup(app: Sphinx) -> Dict[str, Any]:
+     app.add_config_value('linkcheck_workers', 5, None)
+     app.add_config_value('linkcheck_anchors', True, None)
+     # Anchors starting with ! are ignored since they are
+-    # commonly used for dynamic pages
+-    app.add_config_value('linkcheck_anchors_ignore', ["^!"], None)
++    # commonly used for dynamic references
++    app.add_config_value('linkcheck_anchors_ignore', ["!"], None)
+ 
+     return {
+         'version': 'builtin',
+         'parallel_read_safe': True,
+         'parallel_write_safe': True,
+-    }
++    }
+\ No newline at end of file

@@ -1,0 +1,34 @@
+diff --git a/django/db/models/deletion.py b/django/db/models/deletion.py
+index 3a462f1c4c..20361f4fbb 100644
+--- a/django/db/models/deletion.py
++++ b/django/db/models/deletion.py
+@@ -232,9 +232,19 @@ class Collector:
+         """
+         Get a QuerySet of objects related to `objs` via the relation `related`.
+         """
+-        return related.related_model._base_manager.using(self.using).filter(
+-            **{"%s__in" % related.field.name: objs}
+-        )
++        # Get only the primary key and any foreign key fields needed for deletion
++        model = related.related_model
++        fields = [model._meta.pk.name]  # Always need the primary key
++        # Add the foreign key field used in the relationship
++        fields.append(related.field.name)
++        # Add any foreign key fields used in ON DELETE operations
++        for field in model._meta.fields:
++            if field.is_relation and field.remote_field and field.remote_field.on_delete != DO_NOTHING:
++                fields.append(field.name)
++                
++        return model._base_manager.using(self.using).filter(**{
++            "%s__in" % related.field.name: objs
++        }).only(*fields)
+ 
+     def instances_with_model(self):
+         for model, instances in self.data.items():
+@@ -325,4 +335,4 @@ class Collector:
+         for model, instances in self.data.items():
+             for instance in instances:
+                 setattr(instance, model._meta.pk.attname, None)
+-        return sum(deleted_counter.values()), dict(deleted_counter)
++        return sum(deleted_counter.values()), dict(deleted_counter)
+\ No newline at end of file

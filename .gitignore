@@ -1,0 +1,19 @@
+# Credentials
+secrets.env
+*.env
+.env
+
+# Created by the setup steps in the README
+swe_bench/SWE-bench/
+polyglot/polyglot-benchmark/
+polyglot/polyglot_benchmark_metadata.json
+
+# Run outputs and logs
+/output_dgm/
+/logs/
+exp/*.launch.txt
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/

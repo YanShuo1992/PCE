@@ -1,0 +1,102 @@
+diff --git a/sphinx/builders/gettext.py b/sphinx/builders/gettext.py
+index e8bc547b7..2c4c5343a 100644
+--- a/sphinx/builders/gettext.py
++++ b/sphinx/builders/gettext.py
+@@ -32,7 +32,8 @@ class Message:
+     """An entry of translatable message."""
+     def __init__(self, text: str, locations: List[Tuple[str, int]], uuids: List[str]):
+         self.text = text
+-        self.locations = locations
++        # Deduplicate locations by converting to a set and back to list
++        self.locations = list(set(locations))
+         self.uuids = uuids
+ 
+ 
+@@ -136,7 +137,8 @@ class I18nBuilder(Builder):
+         return
+ 
+     def write_doc(self, docname: str, doctree: nodes.document) -> None:
+-        catalog = self.catalogs[docname_to_domain(docname, self.config.gettext_compact)]
++        domain = self.config.gettext_compact if isinstance(self.config.gettext_compact, str) else docname_to_domain(docname, self.config.gettext_compact)
++        catalog = self.catalogs[domain]
+ 
+         for toctree in self.env.tocs[docname].findall(addnodes.toctree):
+             for node, msg in extract_messages(toctree):
+@@ -241,7 +243,8 @@ class MessageCatalogBuilder(I18nBuilder):
+                     context = f.read()
+                 for line, _meth, msg in extract_translations(context):
+                     origin = MsgOrigin(template, line)
+-                    self.catalogs['sphinx'].add(msg, origin)
++                    domain = self.config.gettext_compact if isinstance(self.config.gettext_compact, str) else "sphinx"
++                    self.catalogs[domain].add(msg, origin)
+             except Exception as exc:
+                 raise ThemeError('%s: %r' % (template, exc)) from exc
+ 
+@@ -251,26 +254,43 @@ class MessageCatalogBuilder(I18nBuilder):
+ 
+     def finish(self) -> None:
+         super().finish()
++
+         context = {
+-            'version': self.config.version,
+-            'copyright': self.config.copyright,
+-            'project': self.config.project,
++            'version': self.config.version or '',
++            'copyright': self.config.copyright or '',
++            'project': self.config.project or 'Python',
+             'last_translator': self.config.gettext_last_translator,
+             'language_team': self.config.gettext_language_team,
+             'ctime': datetime.fromtimestamp(timestamp, ltz).strftime('%Y-%m-%d %H:%M%z'),
+             'display_location': self.config.gettext_location,
+             'display_uuid': self.config.gettext_uuid,
+         }
++
++        # If gettext_compact is a string value, merge all catalogs into one
++        if isinstance(self.config.gettext_compact, str):
++            new_catalogs = defaultdict(Catalog)
++            domain = self.config.gettext_compact
++
++            # Merge all existing catalogs into one
++            for _, catalog in self.catalogs.items():
++                for msg in catalog:
++                    for location in msg.locations:
++                        origin = MsgOrigin(location[0], location[1])
++                        new_catalogs[domain].add(msg.text, origin)
++
++            self.catalogs = new_catalogs
++
+         for textdomain, catalog in status_iterator(self.catalogs.items(),
+                                                    __("writing message catalogs... "),
+                                                    "darkgreen", len(self.catalogs),
+-                                                   self.app.verbosity,
+-                                                   lambda textdomain__: textdomain__[0]):
+-            # noop if config.gettext_compact is set
++                                                   self.app.verbosity):
+             ensuredir(path.join(self.outdir, path.dirname(textdomain)))
+ 
+-            context['messages'] = list(catalog)
+-            content = GettextRenderer(outdir=self.outdir).render('message.pot_t', context)
++            content = GettextRenderer(outdir=self.outdir).render('message.pot_t', {
++                'messages': list(catalog),
++                'textdomain': textdomain,
++                **context
++            })
+ 
+             pofn = path.join(self.outdir, textdomain + '.pot')
+             if should_write(pofn, content):
+@@ -281,7 +301,7 @@ class MessageCatalogBuilder(I18nBuilder):
+ def setup(app: Sphinx) -> Dict[str, Any]:
+     app.add_builder(MessageCatalogBuilder)
+ 
+-    app.add_config_value('gettext_compact', True, 'gettext', {bool, str})
++    app.add_config_value('gettext_compact', True, 'gettext')
+     app.add_config_value('gettext_location', True, 'gettext')
+     app.add_config_value('gettext_uuid', False, 'gettext')
+     app.add_config_value('gettext_auto_build', True, 'env')
+@@ -293,4 +313,4 @@ def setup(app: Sphinx) -> Dict[str, Any]:
+         'version': 'builtin',
+         'parallel_read_safe': True,
+         'parallel_write_safe': True,
+-    }
++    }
+\ No newline at end of file

@@ -1,0 +1,20 @@
+diff --git a/swebench/harness/constants.py b/swebench/harness/constants.py
+index d032022..69dda3d 100644
+--- a/swebench/harness/constants.py
++++ b/swebench/harness/constants.py
+@@ -494,7 +494,14 @@ SPECS_SPHINX = {
+     k: {
+         "python": "3.9",
+         "pip_packages": ["tox==4.16.0", "tox-current-env==0.0.11"],
+-        "install": "python -m pip install -e .[test]",
++        # docutils>=0.21 removed docutils.utils.roman (the sphinx latex writer depends on
++        # it, falling back to the standalone `roman` package). Locally-built eval images
++        # pulled in docutils 0.23 without roman, so pytest crashed during SETUP and EVERY
++        # patch -- including the gold patch -- scored 0. That is the real cause of the
++        # 13/15 sphinx instances we used to call "dead tasks".
++        # The install command is re-run at eval time (make_eval_script_list), so prepending
++        # `pip install roman` here restores the dependency WITHOUT rebuilding the images.
++        "install": "python -m pip install roman && python -m pip install -e .[test]",
+         "pre_install": ["sed -i 's/pytest/pytest -rA/' tox.ini"],
+         "test_cmd": TEST_SPHINX,
+     }

@@ -1,0 +1,9 @@
+{
+    "instance_id": "sphinx-doc__sphinx-8269",
+    "model_name_or_path": "initial",
+    "model_patch": "",
+    "proposed_model_patches": [],
+    "success": false,
+    "failure_reason": "exit_code_143",
+    "exit_code": 0
+}

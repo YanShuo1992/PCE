@@ -1,0 +1,81 @@
+diff --git a/llm.py b/llm.py
+index 5672f4e..54beec0 100644
+--- a/llm.py
++++ b/llm.py
+@@ -68,6 +68,16 @@ def create_client(model: str):
+             aws_region=os.getenv("AWS_REGION_NAME"),
+         )
+         return client, client_model
++    elif model.startswith("dsclaude/"):
++        # DeepSeek via its Anthropic-compatible endpoint, routed through the proven Claude path.
++        # The "dsclaude/" prefix contains "claude", so every `'claude' in model` check routes it
++        # to the Claude path; the real model id (e.g. deepseek-chat) is stripped at messages.create.
++        print(f"Using DeepSeek (Anthropic format) with model {model}.")
++        client = anthropic.Anthropic(
++            api_key=os.environ["DEEPSEEK_API_KEY"],
++            base_url=os.getenv("DEEPSEEK_ANTHROPIC_BASE_URL", "https://api.deepseek.com/anthropic"),
++        )
++        return client, model  # keep full name so downstream 'claude' routing still matches
+     elif model.startswith("claude-"):
+         print(f"Using Anthropic API with model {model}.")
+         return anthropic.Anthropic(), model
+@@ -297,8 +307,14 @@ def get_response_from_llm(
+         )
+         content = response.choices[0].message.content
+         new_msg_history = new_msg_history + [{"role": "assistant", "content": content}]
+-    elif model in ["deepseek-reasoner"]:
++    elif model in ["deepseek-reasoner"] or model.startswith("deepseek-v4"):
++        # DeepSeek reasoning models go through the OpenAI format: do not set max_tokens (same as GEA's o1,
++        # reasoning stays free + the answer stays complete, avoiding thinking eating up all of max_tokens
++        # and truncating the JSON); reasoning_content is separate from content. 2026-07-10.
+         new_msg_history = msg_history + [{"role": "user", "content": msg}]
++        # Diagnosis reasoning level: controlled by env DIAGNOSE_REASONING_EFFORT (high/max); unset = use DeepSeek's default level (thinking is already on by default). 2026-07-12.
++        _eff = os.getenv('DIAGNOSE_REASONING_EFFORT')
++        _rc_kwargs = {'reasoning_effort': _eff, 'extra_body': {"thinking": {"type": "enabled"}}} if _eff else {}
+         response = client.chat.completions.create(
+             model=model,
+             messages=[
+@@ -307,10 +323,16 @@ def get_response_from_llm(
+             ],
+             n=1,
+             stop=None,
++            **_rc_kwargs,
+         )
+         content = response.choices[0].message.content
+         new_msg_history = new_msg_history + [{"role": "assistant", "content": content}]
+-        reasoning_content = response.choices[0].message.reasoning_content
++        reasoning_content = getattr(response.choices[0].message, 'reasoning_content', None)
++        # [NO_REASONING] monitoring: reasoning was enabled but nothing came back = thinking may have failed silently (greppable). 2026-07-12.
++        if not reasoning_content:
++            print(f"[NO_REASONING] diagnose model={model} effort={_eff or 'default'} reasoning_content is empty!", flush=True)
++        else:
++            print(f"[REASONING_OK] diagnose model={model} effort={_eff or 'default'} reasoning={len(reasoning_content)} chars", flush=True)
+     elif model.startswith("llama3.1-"):
+         llama_size = model.split("-")[-1]
+         client_model = f"meta-llama/llama-3.1-{llama_size}-instruct"
+diff --git a/llm_withtools.py b/llm_withtools.py
+index 2d24683..6f3fcba 100644
+--- a/llm_withtools.py
++++ b/llm_withtools.py
+@@ -115,13 +115,19 @@ def get_response_withtools(
+             else:
+                 max_tokens = 4096  # Standard limit for Haiku and other models
+             
+-            response = client.messages.create(
+-                model=model,
++            _create_kwargs = dict(
++                # strip the dsclaude/ routing prefix to the real provider model id (e.g. deepseek-chat)
++                model=model.split('dsclaude/', 1)[-1] if model.startswith('dsclaude/') else model,
+                 messages=messages,
+                 max_tokens=max_tokens,
+                 tool_choice=tool_choice,
+                 tools=tools,
+             )
++            if model.startswith('dsclaude/') and os.getenv('DEEPSEEK_THINKING', '').lower() != 'enabled':
++                # DeepSeek chain-of-thought is OFF by default (faster/cheaper, and robust over long
++                # agentic sessions). Opt back in with DEEPSEEK_THINKING=enabled. Real Claude untouched.
++                _create_kwargs['thinking'] = {"type": "disabled"}
++            response = client.messages.create(**_create_kwargs)
+         elif model.startswith('o3-') or model == 'gpt-5.1-2025-11-13' or model == 'gpt-5.1-codex-mini':
+             # o3 models, gpt-5.1-2025-11-13, and gpt-5.1-codex-mini use responses.create API
+             response = client.responses.create(

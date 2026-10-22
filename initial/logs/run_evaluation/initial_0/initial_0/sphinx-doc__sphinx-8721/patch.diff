@@ -1,0 +1,212 @@
+diff --git a/setup.py b/setup.py
+index 8d40de1a8..03f325278 100644
+--- a/setup.py
++++ b/setup.py
+@@ -15,22 +15,22 @@ if sys.version_info < (3, 5):
+     sys.exit(1)
+ 
+ install_requires = [
+-    'sphinxcontrib-applehelp',
+-    'sphinxcontrib-devhelp',
++    'sphinxcontrib-applehelp<=1.0.7',
++    'sphinxcontrib-devhelp<=1.0.5',
+     'sphinxcontrib-jsmath',
+-    'sphinxcontrib-htmlhelp',
+-    'sphinxcontrib-serializinghtml',
+-    'sphinxcontrib-qthelp',
+-    'Jinja2>=2.3',
++    'sphinxcontrib-htmlhelp<=2.0.4',
++    'sphinxcontrib-serializinghtml<=1.1.9',
++    'sphinxcontrib-qthelp<=1.0.6',
++    'Jinja2<3.0',
+     'Pygments>=2.0',
+     'docutils>=0.12',
+     'snowballstemmer>=1.1',
+     'babel>=1.3',
+-    'alabaster>=0.7,<0.8',
++    'alabaster>=0.7,<0.7.12',
+     'imagesize',
+     'requests>=2.5.0',
+     'setuptools',
+-    'packaging',
++    'packaging', 'markupsafe<=2.0.1',
+ ]
+ 
+ extras_require = {
+diff --git a/sphinx/ext/viewcode.py b/sphinx/ext/viewcode.py
+index a7d52a91c..ffe7c080a 100644
+--- a/sphinx/ext/viewcode.py
++++ b/sphinx/ext/viewcode.py
+@@ -118,8 +118,8 @@ def doctree_read(app: Sphinx, doctree: Node) -> None:
+             inline = nodes.inline('', _('[source]'), classes=['viewcode-link'])
+             onlynode = addnodes.only(expr='html')
+             onlynode += addnodes.pending_xref('', inline, reftype='viewcode', refdomain='std',
+-                                              refexplicit=False, reftarget=pagename,
+-                                              refid=fullname, refdoc=env.docname)
++                                          refexplicit=False, reftarget=pagename,
++                                          refid=fullname, refdoc=env.docname)
+             signode += onlynode
+ 
+ 
+@@ -178,10 +178,41 @@ def should_generate_module_page(app: Sphinx, modname: str) -> bool:
+     return True
+ 
+ 
++def render_code(code: str, tags: Dict[str, tuple], used: Dict[str, str],
++               refname: str, modname: str, highlighter, lexer: str) -> str:
++    """Highlight the code and add viewcode anchors."""
++    highlighted = highlighter.highlight_block(code, lexer, linenos=False)
++    highlighted = re.sub(r'<div class="highlight.*?"><pre>', '', highlighted)
++    highlighted = re.sub(r'</pre></div>', '', highlighted)
++    highlighted = '\n' + highlighted + '\n'
++
++    # Add viewcode blocks and links
++    lines = highlighted.splitlines(keepends=True)
++    maxindex = len(lines) - 1
++
++    for name, docname in used.items():
++        type, start, end = tags[name]
++        backlink = '../../index.html#' + refname + '.' + name
++        lines[start-1] = (
++            '<div class="viewcode-block" id="%s"><a class="viewcode-back" '
++            'href="%s">[docs]</a>%s'
++            % (name, backlink, lines[start-1]))
++        lines[min(end-1, maxindex)] += '</div>\n'
++
++    body = '<h1>Source code for %s</h1>' % modname
++    body += '<div class="highlight"><pre>\n%s</pre></div>\n' % ''.join(lines)
++    return body
++
++
+ def collect_pages(app: Sphinx) -> Generator[Tuple[str, Dict[str, Any], str], None, None]:
+     env = app.builder.env
+     if not hasattr(env, '_viewcode_modules'):
+         return
++
++    # Skip page generation for epub builder when viewcode_enable_epub is False
++    if app.builder.name.startswith("epub") and not env.config.viewcode_enable_epub:
++        return
++
+     highlighter = app.builder.highlighter  # type: ignore
+     urito = app.builder.get_relative_uri
+ 
+@@ -198,98 +229,62 @@ def collect_pages(app: Sphinx) -> Generator[Tuple[str, Dict[str, Any], str], Non
+             continue
+ 
+         code, tags, used, refname = entry
+-        # construct a page name for the highlighted source
+         pagename = posixpath.join(OUTPUT_DIRNAME, modname.replace('.', '/'))
++
+         # highlight the source using the builder's highlighter
+         if env.config.highlight_language in ('python3', 'default', 'none'):
+             lexer = env.config.highlight_language
+         else:
+             lexer = 'python'
+-        highlighted = highlighter.highlight_block(code, lexer, linenos=False)
+-        # split the code into lines
+-        lines = highlighted.splitlines()
+-        # split off wrap markup from the first line of the actual code
+-        before, after = lines[0].split('<pre>')
+-        lines[0:1] = [before + '<pre>', after]
+-        # nothing to do for the last line; it always starts with </pre> anyway
+-        # now that we have code lines (starting at index 1), insert anchors for
+-        # the collected tags (HACK: this only works if the tag boundaries are
+-        # properly nested!)
+-        maxindex = len(lines) - 1
+-        for name, docname in used.items():
+-            type, start, end = tags[name]
+-            backlink = urito(pagename, docname) + '#' + refname + '.' + name
+-            lines[start] = (
+-                '<div class="viewcode-block" id="%s"><a class="viewcode-back" '
+-                'href="%s">%s</a>' % (name, backlink, _('[docs]')) +
+-                lines[start])
+-            lines[min(end, maxindex)] += '</div>'
+-        # try to find parents (for submodules)
+-        parents = []
+-        parent = modname
+-        while '.' in parent:
+-            parent = parent.rsplit('.', 1)[0]
+-            if parent in modnames:
+-                parents.append({
+-                    'link': urito(pagename,
+-                                  posixpath.join(OUTPUT_DIRNAME, parent.replace('.', '/'))),
+-                    'title': parent})
+-        parents.append({'link': urito(pagename, posixpath.join(OUTPUT_DIRNAME, 'index')),
+-                        'title': _('Module code')})
+-        parents.reverse()
+-        # putting it all together
++            
++        body = render_code(code, tags, used, refname, modname, highlighter, lexer)
++
++        # Put it all together
+         context = {
+-            'parents': parents,
+             'title': modname,
+-            'body': (_('<h1>Source code for %s</h1>') % modname +
+-                     '\n'.join(lines)),
++            'body': body,
+         }
+         yield (pagename, context, 'page.html')
+ 
+     if not modnames:
+         return
+ 
++    # Create module index
+     html = ['\n']
+-    # the stack logic is needed for using nested lists for submodules
+     stack = ['']
+     for modname in sorted(modnames):
+         if modname.startswith(stack[-1]):
+             stack.append(modname + '.')
+             html.append('<ul>')
+         else:
+-            stack.pop()
+-            while not modname.startswith(stack[-1]):
++            while (stack[-1] and not modname.startswith(stack[-1]) and 
++                   len(stack) > 1):
+                 stack.pop()
+                 html.append('</ul>')
+             stack.append(modname + '.')
+-        html.append('<li><a href="%s">%s</a></li>\n' % (
+-            urito(posixpath.join(OUTPUT_DIRNAME, 'index'),
+-                  posixpath.join(OUTPUT_DIRNAME, modname.replace('.', '/'))),
+-            modname))
++            html.append('</ul><ul>')
++        if env._viewcode_modules[modname]:  # type: ignore
++            code, tags, used, _ = env._viewcode_modules[modname]  # type: ignore
++            pagename = posixpath.join(OUTPUT_DIRNAME, modname.replace('.', '/'))
++            html.append('<li><a href="%s">%s</a></li>\n' % (
++                urito(posixpath.join(OUTPUT_DIRNAME, 'index'), pagename), modname))
+     html.append('</ul>' * (len(stack) - 1))
++
+     context = {
+-        'title': _('Overview: module code'),
+-        'body': (_('<h1>All modules for which code is available</h1>') +
+-                 ''.join(html)),
++        'title': 'Overview: module code',
++        'body': '<h1>All modules for which code is available</h1>' + ''.join(html),
+     }
+-
+     yield (posixpath.join(OUTPUT_DIRNAME, 'index'), context, 'page.html')
+ 
+ 
+ def setup(app: Sphinx) -> Dict[str, Any]:
+-    app.add_config_value('viewcode_import', None, False)
+     app.add_config_value('viewcode_enable_epub', False, False)
+     app.add_config_value('viewcode_follow_imported_members', True, False)
+     app.connect('doctree-read', doctree_read)
+     app.connect('env-merge-info', env_merge_info)
+     app.connect('html-collect-pages', collect_pages)
+     app.connect('missing-reference', missing_reference)
+-    # app.add_config_value('viewcode_include_modules', [], 'env')
+-    # app.add_config_value('viewcode_exclude_modules', [], 'env')
++    # app.add_config_value('viewcode_import', True, False)
+     app.add_event('viewcode-find-source')
+     app.add_event('viewcode-follow-imported')
+-    return {
+-        'version': sphinx.__display_version__,
+-        'env_version': 1,
+-        'parallel_read_safe': True
+-    }
++    return {'version': sphinx.__display_version__, 'parallel_read_safe': True}
+\ No newline at end of file

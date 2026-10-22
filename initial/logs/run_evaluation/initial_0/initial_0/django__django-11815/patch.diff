@@ -1,0 +1,24 @@
+diff --git a/django/db/migrations/serializer.py b/django/db/migrations/serializer.py
+index 27b5cbd379..ab6fa4fa6a 100644
+--- a/django/db/migrations/serializer.py
++++ b/django/db/migrations/serializer.py
+@@ -120,9 +120,9 @@ class EnumSerializer(BaseSerializer):
+     def serialize(self):
+         enum_class = self.value.__class__
+         module = enum_class.__module__
+-        v_string, v_imports = serializer_factory(self.value.value).serialize()
+-        imports = {'import %s' % module, *v_imports}
+-        return "%s.%s(%s)" % (module, enum_class.__name__, v_string), imports
++        imports = {'import %s' % module}
++        # For default values in migrations, use name-based lookup instead of value
++        return "%s.%s['%s']" % (module, enum_class.__name__, self.value.name), imports
+ 
+ 
+ class FloatSerializer(BaseSimpleSerializer):
+@@ -336,4 +336,4 @@ def serializer_factory(value):
+         "Cannot serialize: %r\nThere are some values Django cannot serialize into "
+         "migration files.\nFor more, see https://docs.djangoproject.com/en/%s/"
+         "topics/migrations/#migration-serializing" % (value, get_docs_version())
+-    )
++    )
+\ No newline at end of file

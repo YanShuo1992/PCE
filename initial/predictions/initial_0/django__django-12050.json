@@ -1,0 +1,7 @@
+{
+    "instance_id": "django__django-12050",
+    "model_name_or_path": "initial",
+    "model_patch": "diff --git a/tests/queries/test_resolve_lookup_value.py b/tests/queries/test_resolve_lookup_value.py\nnew file mode 100644\nindex 0000000000..b9c9d54230\n--- /dev/null\n+++ b/tests/queries/test_resolve_lookup_value.py\n@@ -0,0 +1,15 @@\n+from django.db import models\n+from django.db.models.sql.query import Query\n+from django.test import TestCase\n+\n+class TestModel(models.Model):\n+    class Meta:\n+        app_label = 'resolve_lookup_test'\n+\n+class ResolveValueTests(TestCase):\n+    def test_resolve_list_value(self):\n+        query = Query(TestModel)\n+        test_list = ['a', 'b', 'c']\n+        result = query.resolve_lookup_value(test_list, can_reuse=set(), allow_joins=True, simple_col=False)\n+        self.assertEqual(result, test_list)  # Should return list, not tuple\n+        self.assertIs(type(result), list)  # Explicitly check type\n\\ No newline at end of file\n",
+    "proposed_model_patches": [],
+    "success": true
+}

@@ -1,0 +1,75 @@
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+.vscode
+.env
+.ipynb
+
+<!-- swe-bench -->
+logs/
+swe_bench/
+initial/
+
+<!-- polyglot -->
+polyglot/
+aider_polyglot.json
+
+hf_cache/
+
+<!-- outputs -->
+output_selfimprove/
+output_dgm/
+output_peer_review/
+initial_polyglot/
+
+<!-- misc -->
+misc/
+README.md
+Dockerfile
+.dockerignore
+requirements_dev.txt
+
+<!-- code outside of coding agent -->
+test_swebench.py
+DGM_outer.py
+self_improve_step.py
+analysis/
+prompts/self_improvement_prompt.py
+utils/evo_utils.py
+utils/docker_utils.py
+<!-- ★ The self-improvement container is built from this image, and a child agent
+     runs inside it with the whole tree readable. Everything below is the experiment looking at
+     the agent, not the agent itself, and none of it is in agent_src.FILES/DIRS.
+
+     .git is the sharpest of them: it carries every branch and every commit, so a file deleted
+     from the working tree is still one `git show HEAD:<path>` away. A child has been observed
+     recovering a file that way, verbatim, from history.
+
+     docs/ and exp/ are worse in kind if not in reach: every exp/*.yaml says what the arm is and
+     what it is being compared against. A child that reads one is being told what it is inside of.
+
+     Removing .git means the container has no repository, so self_improve_step.py runs
+     `git init` before its `git add --all`; the base commit it needs is created there either
+     way, and diff_versus_commit only ever compares against that one commit. -->
+.git/
+.gitattributes
+docs/
+exp/
+notes/
+probes/
+patches/
+evidence/
+.claude/
+.pytest_cache/
+*.md
+*.sh
+selftest_h0.py
+probe_*.py
+analyze_*.py
+run.py
+GEA_outer.py
+group_distill.py
+preflight.py
+agent_src.py
+requirements-probe.txt

@@ -1,0 +1,33 @@
+{
+  "built_by": "scripts/make_heldout.py",
+  "seed": 20260831,
+  "size": 60,
+  "rule": "drawn only from instances whose own gold patch passed the sweep; disjoint from task.json; every repo with candidates represented; difficulty steered towards task.json's profile",
+  "pool_size": 402,
+  "gold_passing_at_build": 462,
+  "per_repo": {
+    "astropy": 6,
+    "django": 5,
+    "matplotlib": 6,
+    "mwaskom": 2,
+    "pallets": 1,
+    "psf": 6,
+    "pydata": 6,
+    "pylint-dev": 4,
+    "pytest-dev": 6,
+    "scikit-learn": 6,
+    "sphinx-doc": 6,
+    "sympy": 6
+  },
+  "difficulty": {
+    "1-4 hours": 0.1167,
+    "15 min - 1 hour": 0.5,
+    "<15 min fix": 0.3833
+  },
+  "difficulty_task": {
+    "1-4 hours": 0.1167,
+    "15 min - 1 hour": 0.4833,
+    "<15 min fix": 0.3833,
+    ">4 hours": 0.0167
+  }
+}
