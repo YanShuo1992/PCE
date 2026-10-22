@@ -1,14 +1,27 @@
 # The View from Nowhere: Population-Centered Agent Evolution
 
-Code for Population-Centered Evolution (PCE) and for GEA, the baseline it is compared against. The
-code is built on [GEA](https://github.com/UCSB-AI/GEA).
+This repository contains the code for Population-Centered Evolution (PCE).
 
 ## Requirements
 
-- Linux, about 300 GB of free disk for both benchmarks' images, and Conda or Miniforge.
-- Network access for the model API, PyPI, Hugging Face and GitHub during setup.
+- Linux (x86_64) with Docker
+- Conda or Miniforge
+- At least 500 GB of free disk for the benchmark images; 1 TB is recommended
+- A DeepSeek API key
+- Network access to PyPI, Hugging Face and GitHub during setup
 
-## 1. Docker
+## Setup
+
+### 1. Host environment
+
+```bash
+conda env create -f environment.yml
+conda activate mini_oracle
+```
+
+This installs Python 3.11. `requirements.txt` is installed inside the containers, not on the host.
+
+### 2. Docker
 
 ```bash
 docker run hello-world
@@ -21,20 +34,10 @@ sudo usermod -aG docker $USER
 newgrp docker
 ```
 
-## 2. Host environment
+### 3. SWE-bench
 
-```bash
-conda env create -f environment.yml
-conda activate mini_oracle
-```
-
-Python 3.11. `requirements.txt` is a different list: it is installed *inside* the containers by
-`Dockerfile` and by the two harnesses, and is not the host environment.
-
-## 3. SWE-bench
-
-Vendor the evaluation harness into `swe_bench/SWE-bench`, apply the three patches, and install it
-from that tree:
+Clone the evaluation harness into `swe_bench/SWE-bench`, apply the three patches, and install it
+from that tree, not from PyPI:
 
 ```bash
 cd swe_bench
@@ -48,107 +51,63 @@ pip install -e .
 cd ../../
 ```
 
-Install from this tree, not from PyPI, which ships the harness unpatched. 
+### 4. Polyglot
 
-The instance data is `princeton-nlp/SWE-bench_Verified`, downloaded from Hugging Face on first
-use. The graded subset is `swe_bench/subsets/task.json`.
-
-## 4. Polyglot
-
-`git` must have a `user.name` and a `user.email`, because the preparation step commits in each
-exercise repository:
+`git` needs a `user.name` and a `user.email`, because the preparation step commits in each exercise
+repository:
 
 ```bash
 git config --global user.name "..."
 git config --global user.email "..."
 ```
 
-The first command below clones `Aider-AI/polyglot-benchmark`, rewrites each of the 225 exercises
-into a two-commit git repository, and writes `polyglot/polyglot_benchmark_metadata.json`. The
-second builds the 225 instance images. Run both from the repository root.
+From the repository root, prepare the 225 exercises and build their images:
 
 ```bash
 python -m polyglot.prepare_polyglot_dataset
 bash polyglot/rebuild_images.sh
 ```
 
-Re-running the first changes every commit hash, so the second has to be re-run after it. The
-graded subset is `polyglot/subsets/task.json`.
+Re-running the first command changes every commit hash, so the second has to be re-run after it.
 
-## 5. Docker images
+### 5. API key
 
-Three kinds, all built locally:
-
-| Image | Built by | When |
-| --- | --- | --- |
-| `dgm` | `run.py`, from `Dockerfile` | first launch, or `--rebuild` |
-| `sweb.base`, `sweb.env.*`, `sweb.eval.*` | the SWE-bench harness | on demand, per instance |
-| `pb.base`, `pb.env.*`, `pb.eval.*` | `polyglot/rebuild_images.sh` | step 4 |
-
-The `dgm` image name is fixed, so one checkout per machine can be live at a time. `run.py`
-compares the image against the working tree and refuses to launch when they differ.
-
-## 6. Credentials
-
-`secrets.env` at the repository root, read by the launch scripts:
+Create `secrets.env` at the repository root:
 
 ```
 DEEPSEEK_API_KEY=...
 ```
 
-`ANTHROPIC_API_KEY` and `OPENAI_API_KEY` are passed into the containers when set and are not
-reached by any of the four arms below.
+The solver is `deepseek-v4-flash`, and diagnosis and distillation use `deepseek-v4-pro`. DeepSeek has
+since retired `deepseek-v4-flash`; the name is still accepted and is served by DeepSeek-V4.1-Flash.
 
-The arms run `dsclaude/deepseek-v4-flash` as the solver, against
-`https://api.deepseek.com/anthropic`, and `deepseek-v4-pro` for the diagnosis and the
-distillation, against `https://api.deepseek.com`. For a different solver endpoint set
-`DEEPSEEK_ANTHROPIC_BASE_URL` and give `DEEPSEEK_API_KEY` that host's key.
+## Running experiments
 
-DeepSeek has since retired `deepseek-v4-flash`; the name is still accepted and is served by
-DeepSeek-V4.1-Flash.
+`exp/` holds the four experiments:
 
-## 7. Arms
-
-Each arm is one file under `exp/`. `run.py` resolves it to an environment and a `GEA_outer.py`
-command line, and writes `exp/<ID>.<stamp>.launch.txt` recording what the run received.
-
-`gea` and `polyglot_gea` run GEA; `distill` and `polyglot_distill` run PCE.
-
-| Arm | Benchmark | Relative to the baseline |
+| Experiment | Benchmark | Method |
 | --- | --- | --- |
-| `gea` | SWE-bench | baseline |
-| `distill` | SWE-bench | `DISTILL=1`, `DISTILL_STEPS=250`, `EMPTY_ENTRIES=1` |
-| `polyglot_gea` | Polyglot | baseline |
-| `polyglot_distill` | Polyglot | `DISTILL=1`, `DISTILL_STEPS=250`, `EVAL_MAX_WORKERS=4` (12 in the baseline) |
+| `gea` | SWE-bench | GEA (baseline) |
+| `distill` | SWE-bench | PCE |
+| `polyglot_gea` | Polyglot | GEA (baseline) |
+| `polyglot_distill` | Polyglot | PCE |
 
-## 8. Launch
+Start one with:
 
 ```bash
+./run_swe.sh gea
 ./run_swe.sh distill
+./run_polyglot.sh polyglot_gea
 ./run_polyglot.sh polyglot_distill
 ```
 
-Resolve an arm and print it without launching:
+To check an experiment without starting it, add `show`, for example `./run_swe.sh show distill`.
 
-```bash
-./run_swe.sh show distill
-```
-
-List every arm:
-
-```bash
-python run.py --list
-```
-
-Runs are foreground and take about a day. Add `--rebuild` when the working tree has moved since
-the `dgm` image was built, and `--continue-from output_dgm/<stamp>` to resume a run.
-
-## 9. Output
-
-`output_dgm/<stamp>/` holds `dgm_metadata.jsonl`, one directory per child, and `_agent_src`, the
-source frozen at the start of the run. Each child directory holds `metadata.json` with that
-child's score, `model_patch.diff`, `self_evo.md`, and `predictions/`. Distillations are written to
-`_distill/<tag>/verdict_<tag>.json`.
+A SWE-bench experiment takes about four days and a Polyglot experiment about one day, depending on
+the number of evaluation workers. Runs stay in the foreground, so start them in `tmux` or `screen`.
+The first run builds the `dgm` image; add `--rebuild` after changing the code. The image name is
+fixed, so only one checkout per machine can run at a time. To resume an interrupted run, add
+`--continue-from output_dgm/<run>`. Results are written to `output_dgm/<run>/`.
 
 ## Acknowledgement
 
