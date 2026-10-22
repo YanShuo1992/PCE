@@ -1,19 +1,72 @@
-# Credentials
-secrets.env
-*.env
-.env
-
-# Created by the setup steps in the README
-swe_bench/SWE-bench/
-polyglot/polyglot-benchmark/
-polyglot/polyglot_benchmark_metadata.json
-
-# Run outputs and logs
-/output_dgm/
-/logs/
-exp/*.launch.txt
-
-# Python
 __pycache__/
+.vscode
+.DS_Store
+venv/
+
+logs/
+!initial/logs/
+swe_bench/predictions/
+swe_bench/tmp_repos/
+swe_bench/repos/
+swe_bench/SWE-bench/
+swe_bench/logs/
+swe_bench/*.json
+
+output_dgm/
+# evaluate.py's output: predictions and per-instance reports, the same shape and size as a
+# run's, and reproducible from the run it names.
+evaluations/
+self_evo.md
+*.ipynb
+
+polyglot/polyglot_benchmark_metadata.json
+polyglot/polyglot-benchmark/
+polyglot/predictions/
+
+# Log files and directories
+*.log
+
+# Large files/images
+*.pdf
+*.png
+*.svg
+*.gif
+
+# But keep misc/ directory images
+!misc/
+!misc/*
+
+# Python temporary files
 *.pyc
+*.pyo
 .pytest_cache/
+*.egg-info/
+
+# Test and utility scripts
+test*.py
+test_*.py
+!prompts/testrepo_prompt.py
+!polyglot/test_spec.py
+
+# tests directory
+tests/
+
+# Root level markdown files except README.md
+/*.md
+!README.md
+
+# Run artifacts produced by run.py (one per launch). Kept on disk for provenance,
+# not in git -- they are per-machine and would churn on every run.
+exp/*.launch.txt
+hf_cache/
+
+# ---- Exceptions to GEA's patterns above ----
+# GEA's .gitignore is written for GEA's own workflow. Anything added under a path it
+# ignores needs an explicit exception here, because `git add -A` skips ignored files
+# without saying so.
+!tests/
+!tests/*.py
+hf_cache/
+
+# API keys (see README). Never commit it.
+secrets.env

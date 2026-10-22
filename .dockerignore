@@ -73,3 +73,6 @@ group_distill.py
 preflight.py
 agent_src.py
 requirements-probe.txt
+
+# API key file: keep it out of the dgm image
+secrets.env
