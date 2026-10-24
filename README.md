@@ -2,6 +2,12 @@
     The View from Nowhere:<br/>Population-Centered Agent Evolution
 </h1>
 
+<p align="center">
+  <a href="https://yanshuo1992.github.io/PCE/">
+    <img src="https://img.shields.io/badge/Project-Page-1858a8.svg?style=for-the-badge">
+  </a>
+</p>
+
 Repository for **Population-Centered Evolution (PCE)**, which distils population-wide experience into a
 population block that guides improvements to a selected parent's harness.
 
